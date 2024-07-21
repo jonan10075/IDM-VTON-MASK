@@ -73,7 +73,8 @@ class IDM_VTON_Processor:
                 "human_image": ("IMAGE",),
                 "clothes_image": ("IMAGE",),
                 "densepose_image": ("IMAGE",),
-                "auto_mask_category": (["upper_body", "lower_body", "dresses"],),
+                "auto_mask_category": (["upper_body", "lower_body", "dresses", "none"],),  # Agregado "none"
+                "mask_image": ("IMAGE",),  # Nuevo input para la máscara
                 "prompt": ("STRING", {
                     "multiline": True,
                     "default": "",
@@ -92,24 +93,26 @@ class IDM_VTON_Processor:
 
     CATEGORY = "IDM-VTON"
 
-    def process_and_execute(self, pipeline, human_image, clothes_image, densepose_image, auto_mask_category, prompt, fit_human_image_size, fix_origin_merge, denoise_steps, seed):
+    def process_and_execute(self, pipeline, human_image, clothes_image, densepose_image, auto_mask_category, mask_image, prompt, fit_human_image_size, fix_origin_merge, denoise_steps, seed):
         to_pil = ToPILImage()
         to_tensor = ToTensor()
 
         human_image_batch = human_image.movedim(-1,1)
         clothe_image_batch = clothes_image.movedim(-1,1)
         densepose_image_batch = densepose_image.movedim(-1,1)
+        mask_image_batch = mask_image.movedim(-1,1) if auto_mask_category == "none" else None
         image_out_list = []
         masked_img_list = []
         masked_gray_img_list = []
-        for human_img, clothe_img, densepose_img in zip(human_image_batch, clothe_image_batch, densepose_image_batch):
+        for human_img, clothe_img, densepose_img, mask_img in zip(human_image_batch, clothe_image_batch, densepose_image_batch, mask_image_batch or [None]*len(human_image_batch)):
             human_pil = to_pil(human_img)
             clothe_pil = to_pil(clothe_img)
             densepose_pil = to_pil(densepose_img)
+            mask_pil = to_pil(mask_img) if mask_img is not None else None
 
             dict = {}
             dict["background"] = human_pil
-            image_out, masked_img, masked_gray_img = start_tryon(pipeline, dict, clothe_pil, prompt, densepose_pil, None, auto_mask_category, denoise_steps, seed)
+            image_out, masked_img, masked_gray_img = start_tryon(pipeline, dict, clothe_pil, prompt, densepose_pil, mask_pil, None if auto_mask_category == "none" else auto_mask_category, denoise_steps, seed)
 
             if fit_human_image_size:
                 image_out = image_out.resize(human_pil.size)
@@ -128,9 +131,10 @@ class IDM_VTON_Processor:
         imgs3 = [to_tensor(img) for img in masked_gray_img_list]
         tensor_batch3 = torch.stack(imgs3, dim=0)
 
-        return (tensor_batch.movedim(1, -1),tensor_batch2.movedim(1, -1),tensor_batch3.movedim(1, -1),)
+        return (tensor_batch.movedim(1, -1), tensor_batch2.movedim(1, -1), tensor_batch3.movedim(1, -1),)
 
-class IDM_VTON_MASK_Processor:
+
+class IDM_VTON_MASK_Processor_Modified:
     """
     IDM-VTON 
     """
@@ -197,12 +201,12 @@ class IDM_VTON_MASK_Processor:
 
 NODE_CLASS_MAPPINGS = {
     "IDM_VTON_PIPELINE_NN": IDM_VTON_PipeLineProcessor,
-    "IDM_VTON_NN": IDM_VTON_Processor,
+    "IDM_VTON_NN_Modified": IDM_VTON_Processor_Modified,
     "IDM_VTON_MASK_NN": IDM_VTON_MASK_Processor,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "IDM_VTON_PIPELINE_NN": "IDM-VTON Pipeline (diffusers)",
-    "IDM_VTON_NN": "IDM-VTON (diffusers)",
+    "IIDM_VTON_NN_Modified": "IDM-VTON Modified (diffusers)",
     "IDM_VTON_MASK_NN": "IDM-VTON with Mask (diffusers)",
 }
